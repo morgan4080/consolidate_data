@@ -19,5 +19,5 @@ CREATE TABLE `b_branch` (
     CONSTRAINT `fk_b_branch_1` FOREIGN KEY (`regionId`) REFERENCES `b_region` (`id`) ON DELETE NO ACTION ON UPDATE NO ACTION
 ) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=latin1;
 
-alter table b_region
+alter table b_branch
     add tenant_id VARCHAR(200) not null;

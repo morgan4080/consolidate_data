@@ -15,6 +15,9 @@ done
 
 for fl in "${SOURCE_FILES[@]}"; do
   for table in "${TARGET_TABLES[@]}"; do
+    # (CREATE TABLE `b_region`)[^;]*;
+#    CREATE_STATEMENTS=$(awk '/(CREATE TABLE `b_region`)[^;]*;/{ print }' sources/"$fl")
+#    echo -E "$(awk '/(CREATE TABLE `b_region`)[^;]*;/{ print }') \n"
     TENANT=$(cat sources/"$fl" | grep "Database:" | awk '{ print $5 }')
     INSERTS=$(cat sources/"$fl" | grep "INSERT INTO \`$table\` VALUES")
     INSERTS="${INSERTS%"${INSERTS##*[![:space:]]}"}"
@@ -30,6 +33,6 @@ for fl in "${SOURCE_FILES[@]}"; do
 
     modified=$(echo "$modified" | sed -E "s/\([[:digit:]],/$replacement2/g")
 
-    echo -e "$modified \n" >> aggregated_dump.sql
+    echo -e "$modified \n" >> CONSOLIDATED_DUMP2.sql
   done
 done
