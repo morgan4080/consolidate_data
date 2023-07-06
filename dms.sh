@@ -15,11 +15,9 @@ done
 
 for fl in "${SOURCE_FILES[@]}"; do
   for table in "${TARGET_TABLES[@]}"; do
-    # (CREATE TABLE `b_region`)[^;]*;
-#    CREATE_STATEMENTS=$(awk '/(CREATE TABLE `b_region`)[^;]*;/{ print }' sources/"$fl")
-#    echo -E "$(awk '/(CREATE TABLE `b_region`)[^;]*;/{ print }') \n"
+    statements=$(sed -n "/^CREATE TABLE \`$table\`/,/);/p" sources/"$fl")
     TENANT=$(cat sources/"$fl" | grep "Database:" | awk '{ print $5 }')
-    INSERTS=$(cat sources/"$fl" | grep "INSERT INTO \`$table\` VALUES")
+    INSERTS=$(cat "$statements" | grep "INSERT INTO \`$table\` VALUES")
     INSERTS="${INSERTS%"${INSERTS##*[![:space:]]}"}"
 
     # Character to search for
