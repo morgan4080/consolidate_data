@@ -1,4 +1,5 @@
 #!/bin/bash
+
 MYSQL_USER="root"
 MYSQL_PASSWORD="2fpLxthn"
 COLUMN="tenant_id"
@@ -27,29 +28,70 @@ for fl in "${SOURCE_FILES[@]}"; do
 
   mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" < sources/"$fl"
 
-  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="schema-$TENANT.sql" --no-data
-
-  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="data-$TENANT.sql" --no-create-info
-
-  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "DROP DATABASE IF EXISTS $TENANT;"
-
-  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $TENANT"
-
-  #create tables
-  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" < "schema-$TENANT.sql"
+#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="schema-$TENANT.sql" --no-data
+#
+#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="data-$TENANT.sql" --no-create-info
+#
+#  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "DROP DATABASE IF EXISTS $TENANT;"
+#
+#  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $TENANT"
+#
+#  #create tables
+#  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" < "schema-$TENANT.sql"
+#  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" < "data-$TENANT.sql"
 
   #alter tables to include column
 
   TABLES=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SHOW TABLES;")
 
+  OLD_PRIMARY_KEY="_ID"
+
+  NEW_PRIMARY_KEY=$TENANT$OLD_PRIMARY_KEY
+
   for TABLE in $TABLES; do
-#    mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "alter table $TABLE add $COLUMN VARCHAR(200) null;"
-    echo "$TABLE"
+    IS_BASE_TABLE=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_NAME = '$TABLE';")
+    if [ "$IS_BASE_TABLE" -eq 0 ]; then
+      mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "alter table $TABLE add $COLUMN VARCHAR(10) null;"
+      mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "alter table $TABLE add $NEW_PRIMARY_KEY VARCHAR(10) null;"
+      OLD_PRIMARY_KEY=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '$TABLE' AND CONSTRAINT_NAME = 'PRIMARY';")
+      IDS=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT $OLD_PRIMARY_KEY FROM $TABLE;")
+
+      for ID in $IDS; do
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $NEW_PRIMARY_KEY = '$TENANT$ID' WHERE $OLD_PRIMARY_KEY=$ID;"
+      done
+
+#      echo "$IDS"
+
+
+
+#      mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $NEW_PRIMARY_KEY = '$TENANT$IDS' WHERE $OLD_PRIMARY_KEY=$IDS;"
+#      for ID in $IDS; do
+#        echo "$NEW_PRIMARY_KEY '$TENANT$ID' $OLD_PRIMARY_KEY $ID"
+#      done
+    fi
   done
 
+  for TABLE in $TABLES; do
+      IS_BASE_TABLE=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_NAME = '$TABLE';")
+      if [ "$IS_BASE_TABLE" -eq 0 ]; then
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN = '$TENANT';"
+      fi
+  done
+
+  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="schema-$TENANT.sql" --no-data
+
+  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="data-$TENANT.sql" --no-create-info
 
 
-  # insert to database
+#  # clean up
+#  rm "schema-$TENANT.sql"
+#  rm "data-$TENANT.sql"
+#
+#  # produce new schemas
+#
+#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="schema-$TENANT.sql" --no-data
+#
+#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="data-$TENANT.sql" --no-create-info
 
 
 
