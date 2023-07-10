@@ -58,9 +58,9 @@ for fl in "${SOURCE_FILES[@]}"; do
         echo "Updating column $COLUMN with $TENANT in table $TABLE"
         mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN = '$TENANT';"
 
-        # Add the new column and primary key constraint
-        echo "Adding primary key $COLUMN2 to table $TABLE"
-        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "ALTER TABLE $TABLE ADD PRIMARY KEY ($PRIMARY_KEY, $COLUMN2);"
+#        # Add the new column and primary key constraint
+#        echo "Adding primary key $COLUMN2 to table $TABLE"
+#        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "ALTER TABLE $TABLE ADD PRIMARY KEY ($PRIMARY_KEY, $COLUMN2);"
       fi
     fi
   done
@@ -84,6 +84,8 @@ for fl in "${SOURCE_FILES[@]}"; do
   sed -i '' 's/DEFINER=[^*]*\*/\*/g' "schema-$TENANT.sql"
 
   mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" TARGET < "schema-$TENANT.sql"
+
+  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" TARGET < "data-$TENANT.sql"
 
 
 
