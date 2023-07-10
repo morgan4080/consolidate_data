@@ -4,61 +4,87 @@ MYSQL_USER="root"
 MYSQL_PASSWORD="2fpLxthn"
 COLUMN="tenant_id"
 COLUMN2="tenant_pid"
-
 TARGET_TABLES=("b_region" "b_branch")
-
 SOURCES=$(ls sources/)
-
 SOURCE_FILES=()
 
-INITIAL_INDEX=0
-
+# Collect source file names
 for file in $SOURCES; do
-  SOURCE_FILES[INITIAL_INDEX]="$file"
-  INITIAL_INDEX=$((INITIAL_INDEX+1))
+  SOURCE_FILES+=("$file")
 done
 
+# Process each source file
 for fl in "${SOURCE_FILES[@]}"; do
+  # Extract tenant name from source file
   TENANT=$(cat sources/"$fl" | grep "Database:" | awk '{ print $5 }')
+  echo "Tenant: $TENANT"
 
-  echo "$TENANT"
+  # Drop existing schema and create new one
+  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "DROP DATABASE IF EXISTS $TENANT;"
+  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE $TENANT;"
 
-  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS $TENANT"
-
+  # Import source file into the new schema
   sed -i '' 's/DEFINER=[^*]*\*/\*/g' sources/"$fl"
-
   mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" < sources/"$fl"
-  TABLES=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SHOW TABLES;")
 
+  # Process each table in the schema
+  TABLES=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SHOW TABLES;")
   for TABLE in $TABLES; do
+    # Check if table is a base table (not a view)
     IS_BASE_TABLE=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_NAME = '$TABLE';")
     if [ "$IS_BASE_TABLE" -eq 0 ]; then
-      mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "alter table $TABLE add $COLUMN VARCHAR(10) null;"
-      mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "alter table $TABLE add $COLUMN2 VARCHAR(15) null;"
-      echo "fetching primary key for table: $TABLE"
-      PRIMARY_KEY=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '$TABLE' AND CONSTRAINT_NAME = 'PRIMARY' LIMIT 1;")
-      echo "selecting primary key $PRIMARY_KEY for table: $TABLE"
-      IDS=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT $PRIMARY_KEY FROM $TABLE;")
-      for ID in $IDS; do
-        echo "updating column $COLUMN2 from table: $TABLE with $TENANT _ $ID WHERE $PRIMARY_KEY is $ID"
-        TO_ADD="_"
-        CONCATED="$TENANT$TO_ADD$ID"
-        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN2 = '$CONCATED' WHERE $PRIMARY_KEY = '$ID';"
-      done
+      if printf '%s\0' "${TARGET_TABLES[@]}" | grep -Fxqz -- "$TABLE"; then
+
+        echo "::::::::::::::::::::::::::::::::::::::::::: $TABLE"
+
+        # Add new columns to the table
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "ALTER TABLE $TABLE ADD $COLUMN VARCHAR(10) NULL;"
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "ALTER TABLE $TABLE ADD $COLUMN2 VARCHAR(15) NULL;"
+
+        # Retrieve primary key column
+        PRIMARY_KEY=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE WHERE TABLE_NAME = '$TABLE' AND CONSTRAINT_NAME = 'PRIMARY' LIMIT 1;")
+        echo "Primary key for table $TABLE: $PRIMARY_KEY"
+
+        # Update values in the new columns
+        IDS=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT $PRIMARY_KEY FROM $TABLE;")
+        for ID in $IDS; do
+          echo "Updating column $COLUMN2 in table $TABLE with $TENANT _ $ID (where $PRIMARY_KEY is $ID)"
+          TO_ADD="_"
+          CONCATED="$TENANT$TO_ADD$ID"
+          mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN2 = '$CONCATED' WHERE $PRIMARY_KEY = '$ID';"
+        done
+
+        # Update the new column with tenant value
+        echo "Updating column $COLUMN with $TENANT in table $TABLE"
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN = '$TENANT';"
+
+        # Add the new column and primary key constraint
+        echo "Adding primary key $COLUMN2 to table $TABLE"
+        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "ALTER TABLE $TABLE ADD PRIMARY KEY ($PRIMARY_KEY, $COLUMN2);"
+      fi
     fi
   done
 
-  for TABLE in $TABLES; do
-      IS_BASE_TABLE=$(mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -se "SELECT COUNT(*) FROM information_schema.VIEWS WHERE TABLE_NAME = '$TABLE';")
-      if [ "$IS_BASE_TABLE" -eq 0 ]; then
-        echo "updating column $COLUMN with $TENANT"
-        mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" -e "UPDATE $TABLE SET $COLUMN = '$TENANT';"
-      fi
+  echo "CONSOLIDATION STEPS"
+
+  joined_string=""
+  for element in "${TARGET_TABLES[@]}"
+  do
+    joined_string+="$element "
   done
 
-#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="schema-$TENANT.sql" --no-data
+  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --tables $joined_string --result-file="schema-$TENANT.sql" --no-data
 
-#  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --result-file="data-$TENANT.sql" --no-create-info
+  mysqldump -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" "$TENANT" --tables $joined_string --result-file="data-$TENANT.sql" --no-create-info
+
+  echo "CREATE DATABASE IF NOT EXISTS TARGET"
+
+  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS TARGET"
+
+  sed -i '' 's/DEFINER=[^*]*\*/\*/g' "schema-$TENANT.sql"
+
+  mysql -u "$MYSQL_USER" -p"$MYSQL_PASSWORD" TARGET < "schema-$TENANT.sql"
+
 
 
 #  # clean up
